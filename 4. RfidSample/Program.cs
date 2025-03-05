@@ -1,6 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -19,7 +21,15 @@ namespace RfidSample
             public sbyte rssi;
             public short phaseDiff;
             public uint timesSeen;
+            public DateTime firstSeenTime;
+            public DateTime lastSeenTime;
         }
+
+        // HttpClient for sending tag data to remote URL
+        private static readonly HttpClient _httpClient = new HttpClient();
+        private const string TagEndpoint = "http://192.168.1.17/api/v1/tag";
+        // JWT token for authorization
+        private const string JwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlJGSUQgU2FtcGxlIEFwcCIsImlhdCI6MTY3MjUwODAwMH0.aBcDeFgHiJkLmNoPqRsTuVwXyZ"; // Replace with your actual JWT token
         public class ByteArrayComparer : IEqualityComparer<byte[]>
         {
             public bool Equals(byte[] lhs, byte[] rhs)
@@ -303,7 +313,7 @@ namespace RfidSample
             }
         }
 
-        void OnInventoryStreamEvent(object sender, NurApi.InventoryStreamEventArgs ev)
+        async void OnInventoryStreamEvent(object sender, NurApi.InventoryStreamEventArgs ev)
         {
             NurApi.TagStorage nurStorage = _nur.GetTagStorage();
             _lock.Wait();
@@ -325,6 +335,18 @@ namespace RfidSample
                             value.rssi = tag.rssi;
                             value.phaseDiff = (short)tag.timestamp;
                             value.timesSeen += 1;
+                            
+                            // Calculate time since last seen
+                            DateTime currentTime = DateTime.Now;
+                            TimeSpan timeDifference = currentTime - value.lastSeenTime;
+                            value.lastSeenTime = currentTime;
+                            
+                            // Only send to remote URL if this is at least the second time we've seen the tag
+                            if (value.timesSeen > 1)
+                            {
+                                // Send tag data to remote URL with time difference
+                                SendTagToRemoteUrl(value.epc, (int)timeDifference.TotalMilliseconds);
+                            }
                         }
                         else
                         {
@@ -333,8 +355,12 @@ namespace RfidSample
                                 antennaId = tag.antennaId,
                                 rssi = tag.rssi,
                                 phaseDiff = (short)tag.timestamp,
-                                timesSeen = 0
+                                timesSeen = 1,
+                                firstSeenTime = DateTime.Now,
+                                lastSeenTime = DateTime.Now
                             };
+                            
+                            // Don't send to remote URL on first observation
                         }
                     }
                     // Clear NurApi internal tag storage so that we only get new tags next next time
@@ -356,6 +382,46 @@ namespace RfidSample
             finally
             {
                 _lock.Release();
+            }
+        }
+
+        private async void SendTagToRemoteUrl(string tagEpc, int timeDifferenceMs = 0)
+        {
+            try
+            {
+                // Create the JSON payload with the tag value and time difference
+                var payload = new 
+                { 
+                    tag = tagEpc, 
+                    timeDifferenceMs = timeDifferenceMs 
+                };
+                var jsonPayload = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+                
+                // Create request message to add Authorization header
+                var request = new HttpRequestMessage(HttpMethod.Post, TagEndpoint)
+                {
+                    Content = content
+                };
+                
+                // Add JWT token as bearer token in Authorization header
+                request.Headers.Add("Authorization", $"Bearer {JwtToken}");
+                
+                // Send POST request to the endpoint
+                var response = await _httpClient.SendAsync(request);
+                
+                // Log sending activity
+                Console.WriteLine($"Sent tag {tagEpc} to remote URL with time difference {timeDifferenceMs}ms");
+                
+                // Check if request was successful
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"Error sending tag to remote URL: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception while sending tag to remote URL: {ex.Message}");
             }
         }
 
