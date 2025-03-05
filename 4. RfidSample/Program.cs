@@ -197,9 +197,10 @@ namespace RfidSample
         }
 
 
-        private void TagsStartStreamEvent(object sender, CallbackEventArgs args)
+        private async Task<JObject> TagsStartStreamEvent(object sender, CallbackEventArgs args)
         {
             await TagsStartStream();
+            return await Task.FromResult(JObject.Parse("{}"));
         }
 
         private async Task<JObject> TagsStartStream()

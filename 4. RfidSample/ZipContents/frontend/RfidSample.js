@@ -3,7 +3,7 @@ var getReaderInfo = true;
 var updateTagsTable = false;
 
 function callRfid(fn) {
-	$.post('/api/application/RfidSample/rfid/' + fn,
+	$.post('/api/application/RfidQR/rfid/' + fn,
 		JSON.stringify({}), function (data) {
 			if ('error' in data) {
 				alert(data['error']);
@@ -18,7 +18,7 @@ function callRfid(fn) {
 }
 
 function callTags(fn) {
-	$.post('/api/application/RfidSample/tags/' + fn + 'Stream',
+	$.post('/api/application/RfidQR/tags/' + fn + 'Stream',
 		JSON.stringify({}), function (data) {
 			if ('error' in data) {
 				alert(data['error']);
@@ -29,7 +29,7 @@ function callTags(fn) {
 }
 
 function updateReaderInfo() {
-	$.get('/api/application/RfidSample/rfid/readerinfo',
+	$.get('/api/application/RfidQR/rfid/readerinfo',
 		function (data) {
 			if ('error' in data) {
 				alert(data['error']);
@@ -64,7 +64,7 @@ function updateReaderInfo() {
 }
 
 function updateState() {
-	$.get('/api/application/RfidSample/rfid/connected',
+	$.get('/api/application/RfidQR/rfid/connected',
 		function (data) {
 			if ('error' in data) {
 				alert(data['error']);
@@ -105,7 +105,7 @@ function updateState() {
 function tagsTable() {
 	$('#tagsTable').DataTable({
 		ajax: {
-			url: '/api/application/RfidSample/inventory/get',
+			url: '/api/application/RfidQR/inventory/get',
 			dataSrc: function(json) {
 				v = [];
 				if ('tags' in json) {
