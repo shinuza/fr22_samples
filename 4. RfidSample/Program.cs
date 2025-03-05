@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -27,9 +27,12 @@ namespace RfidSample
 
         // HttpClient for sending tag data to remote URL
         private static readonly HttpClient _httpClient = new HttpClient();
-        private const string TagEndpoint = "http://192.168.1.17:8080/api/v1/tag";
+        private const string TagEndpoint = "https://app.quickracing.net/api/v1/timing-agents/brady/laptimes";
+        private const string PingEndpoint = "https://app.quickracing.net/api/v1/timing-agents/brady/ping";
         // JWT token for authorization
-        private const string JwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlJGSUQgU2FtcGxlIEFwcCIsImlhdCI6MTY3MjUwODAwMH0.aBcDeFgHiJkLmNoPqRsTuVwXyZ"; // Replace with your actual JWT token
+        private const string JwtToken = ""; // Replace with your actual JWT token
+        // Timer for regular pings
+        private System.Threading.Timer _pingTimer;
         public class ByteArrayComparer : IEqualityComparer<byte[]>
         {
             public bool Equals(byte[] lhs, byte[] rhs)
@@ -90,7 +93,7 @@ namespace RfidSample
             _rpc["/rfid/disconnect"].CallbackReceived += RfidDisconnect;
             _rpc["/rfid/readerinfo"].CallbackReceived += RfidReaderInfo;
 
-            //_rpc["/tags/startStream"].CallbackReceived += TagsStartStream;
+            _rpc["/tags/startStream"].CallbackReceived += TagsStartStreamEvent;
             _rpc["/tags/stopStream"].CallbackReceived += TagsStopStream;
 
             _rpc["/inventory/get"].CallbackReceived += InventoryGet;
@@ -100,6 +103,8 @@ namespace RfidSample
         {
             BackgroundConnect();
             TagsStartStream();
+            // Start the ping timer to send pings every 30 seconds
+            StartPingTimer();
             while (true)
             {
                 _backGroundResetEvent.Wait();
@@ -190,6 +195,13 @@ namespace RfidSample
                 return JObject.Parse("{'error': 'Error serializing reader info'}");
             }
         }
+
+
+        private void TagsStartStreamEvent(object sender, CallbackEventArgs args)
+        {
+            await TagsStartStream();
+        }
+
         private async Task<JObject> TagsStartStream()
         {
             await _lock.WaitAsync();
@@ -219,6 +231,7 @@ namespace RfidSample
             thread.Start();
             return await Task.FromResult(JObject.Parse("{}"));
         }
+
         private async Task<JObject> TagsStopStream(object sender, CallbackEventArgs args)
         {
             await _lock.WaitAsync();
@@ -342,11 +355,18 @@ namespace RfidSample
                             TimeSpan timeDifference = currentTime - value.lastSeenTime;
                             value.lastSeenTime = currentTime;
                             
-                            // Only send to remote URL if this is at least the second time we've seen the tag
-                            if (value.timesSeen > 1)
+                            // Only send to remote URL if:  
+                            // 1. This is at least the second time we've seen the tag
+                            // 2. It's been at least 30 seconds since we last saw this tag
+                            if (value.timesSeen > 1 && timeDifference.TotalSeconds >= 30)
                             {
                                 // Send tag data to remote URL with time difference
                                 SendTagToRemoteUrl(value.epc, (int)timeDifference.TotalMilliseconds);
+                                Console.WriteLine($"Tag {value.epc} sent after {timeDifference.TotalSeconds:F2} seconds");
+                            }
+                            else if (value.timesSeen > 1)
+                            {
+                                Console.WriteLine($"Tag {value.epc} seen again after {timeDifference.TotalSeconds:F2} seconds (less than 30s threshold, not sending)");
                             }
                         }
                         else
@@ -390,11 +410,11 @@ namespace RfidSample
         {
             try
             {
-                // Create the JSON payload with the tag value and time difference
+                // Create the JSON payload with the requested format
                 var payload = new 
                 { 
-                    tag = tagEpc, 
-                    timeDifferenceMs = timeDifferenceMs 
+                    technical_id = tagEpc, 
+                    value = timeDifferenceMs 
                 };
                 var jsonPayload = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
@@ -412,7 +432,7 @@ namespace RfidSample
                 var response = await _httpClient.SendAsync(request);
                 
                 // Log sending activity
-                Console.WriteLine($"Sent tag {tagEpc} to remote URL with time difference {timeDifferenceMs}ms");
+                Console.WriteLine($"Sent tag {tagEpc} to {TagEndpoint} with time value {timeDifferenceMs}ms");
                 
                 // Check if request was successful
                 if (!response.IsSuccessStatusCode)
@@ -423,6 +443,49 @@ namespace RfidSample
             catch (Exception ex)
             {
                 Console.WriteLine($"Exception while sending tag to remote URL: {ex.Message}");
+            }
+        }
+
+        private void StartPingTimer()
+        {
+            // Create and start a timer that sends pings every 30 seconds
+            // First parameter is the callback, second is state (null),
+            // third is delay before first execution (0 = start immediately),
+            // fourth is period (30000 ms = 30 seconds)
+            _pingTimer = new System.Threading.Timer(
+                async (state) => await SendPingAsync(),
+                null,
+                0,  // Start immediately
+                30000);  // Then repeat every 30 seconds
+            
+            Console.WriteLine("Ping timer started - will send pings every 30 seconds");
+        }
+
+        private async Task SendPingAsync()
+        {
+            try
+            {
+                // Create request with empty body
+                var request = new HttpRequestMessage(HttpMethod.Post, PingEndpoint);
+                
+                // Add JWT token as bearer token in Authorization header
+                request.Headers.Add("Authorization", $"Bearer {JwtToken}");
+                
+                // Send POST request to the ping endpoint
+                var response = await _httpClient.SendAsync(request);
+                
+                // Log ping activity
+                Console.WriteLine($"Ping sent to {PingEndpoint} with status: {response.StatusCode}");
+                
+                // Check if request was successful
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"Error sending ping: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception while sending ping: {ex.Message}");
             }
         }
 
