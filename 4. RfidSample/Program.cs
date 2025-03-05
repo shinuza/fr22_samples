@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -27,7 +27,7 @@ namespace RfidSample
 
         // HttpClient for sending tag data to remote URL
         private static readonly HttpClient _httpClient = new HttpClient();
-        private const string TagEndpoint = "http://192.168.1.17/api/v1/tag";
+        private const string TagEndpoint = "http://192.168.1.17:8080/api/v1/tag";
         // JWT token for authorization
         private const string JwtToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlJGSUQgU2FtcGxlIEFwcCIsImlhdCI6MTY3MjUwODAwMH0.aBcDeFgHiJkLmNoPqRsTuVwXyZ"; // Replace with your actual JWT token
         public class ByteArrayComparer : IEqualityComparer<byte[]>
@@ -90,7 +90,7 @@ namespace RfidSample
             _rpc["/rfid/disconnect"].CallbackReceived += RfidDisconnect;
             _rpc["/rfid/readerinfo"].CallbackReceived += RfidReaderInfo;
 
-            _rpc["/tags/startStream"].CallbackReceived += TagsStartStream;
+            //_rpc["/tags/startStream"].CallbackReceived += TagsStartStream;
             _rpc["/tags/stopStream"].CallbackReceived += TagsStopStream;
 
             _rpc["/inventory/get"].CallbackReceived += InventoryGet;
@@ -99,6 +99,7 @@ namespace RfidSample
         public void Run()
         {
             BackgroundConnect();
+            TagsStartStream();
             while (true)
             {
                 _backGroundResetEvent.Wait();
@@ -189,7 +190,7 @@ namespace RfidSample
                 return JObject.Parse("{'error': 'Error serializing reader info'}");
             }
         }
-        private async Task<JObject> TagsStartStream(object sender, CallbackEventArgs args)
+        private async Task<JObject> TagsStartStream()
         {
             await _lock.WaitAsync();
             try
@@ -440,7 +441,7 @@ namespace RfidSample
     {
         static async Task Main()
         {
-            var application = await Application.CreateInstanceAsync("RfidSample");
+            var application = await Application.CreateInstanceAsync("RfidQR");
             application.Run();
         }
     }
